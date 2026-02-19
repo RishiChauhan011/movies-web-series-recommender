@@ -92,7 +92,3 @@ The app will open in your browser at `http://localhost:8501`.
 The `backend/model/similarity.pkl` file is large (~184MB) and is excluded from Git tracking to comply with GitHub file size limits.
 
 If you are setting this up from scratch, you will need to ensure this file exists in `backend/model/` or use Git LFS to track it if you have it.
-
-## 📜 License
-
-This project is licensed under the MIT License.
