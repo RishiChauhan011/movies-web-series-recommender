@@ -1,11 +1,11 @@
-# Movie Recommender System
+# Movie and Web-Series Recommender System
 
 A full-stack movie recommendation application using **FastAPI** for the backend and **Streamlit** for the frontend. It provides personalized movie recommendations based on content similarity and displays trending/popular movies using the TMDB API.
 
 ## 🚀 Features
 
-- **Movie Recommendations**: Content-based filtering to suggest similar movies.
-- **Search**: Search for movies or filter by genre.
+- **Movie Web-Series Recommendations**: Content-based filtering to suggest similar movies and web-series.
+- **Search**: Search for movies and web-series or filter by genre.
 - **Trending & Popular**: View trending, now playing, top-rated, and upcoming movies.
 - **Interactive UI**: Clean and responsive interface built with Streamlit.
 - **API Documentation**: Auto-generated Swagger UI for the backend.
