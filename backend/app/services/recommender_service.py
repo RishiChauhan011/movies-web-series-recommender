@@ -32,8 +32,9 @@ class RecommenderService:
              trending = tmdb_service.get_trending()
              now_playing = tmdb_service.get_now_playing()
              upcoming = tmdb_service.get_upcoming()
+             popular_tv = tmdb_service.get_popular_tv()
              
-             for m in trending + now_playing + upcoming:
+             for m in trending + now_playing + upcoming + popular_tv:
                  if m.title:
                      tmdb_movies.append(m.title)
              
@@ -133,78 +134,103 @@ class RecommenderService:
         # For now, let's mix the filtered results with the full list if query is empty, but we are searching query.
         return results
 
-    def recommend(self, movie_title: str):
+    def recommend(self, movie_title: str, movie_id: int = None, media_type: str = "movie"):
         recommendations = []
         source_movie = None
         
-        # 1. Try Local Content-Based Filtering
-        local_title = self.find_closest_movie(movie_title)
-        
-        if local_title:
-            print(f"Movie '{movie_title}' resolved to local model title '{local_title}'")
-            try:
-                movie_index = self.movies[self.movies['title'] == local_title].index[0]
-                distances = self.similarity[movie_index]
-                movies_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:11]
+        # 1. Try Local Content-Based Filtering (Movies only)
+        if media_type == "movie":
+            match_found = False
+            movie_index = None
+            local_title = None
 
-                for i in movies_list:
-                    movie_id = self.movies.iloc[i[0]].movie_id
+            if self.movies is not None:
+                # Try ID first
+                if movie_id:
+                    matches = self.movies[self.movies['movie_id'] == movie_id]
+                    if not matches.empty:
+                        match_found = True
+                        movie_index = matches.index[0]
+                        local_title = matches.iloc[0]['title']
+                        print(f"Resolved by ID {movie_id} to '{local_title}'")
+            
+                # Boolean indexing failure fallback?
+                if not match_found:
+                    local_title = self.find_closest_movie(movie_title)
+                    if local_title:
+                         matches = self.movies[self.movies['title'] == local_title]
+                         if not matches.empty:
+                             movie_index = matches.index[0]
+                             match_found = True
+            
+            if match_found and movie_index is not None:
+                try:
+                    distances = self.similarity[movie_index]
+                    movies_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:11]
+
+                    for i in movies_list:
+                        m_id = self.movies.iloc[i[0]].movie_id
+                        
+                        # Fetch full details for the recommended movie
+                        details = tmdb_service.get_movie_details(int(m_id))
+                        if details:
+                            recommendations.append(details)
+                        else:
+                            # Fallback if details fail
+                            poster = self.fetch_poster(m_id)
+                            recommendations.append(MovieSchema(
+                                id=int(m_id),
+                                title=self.movies.iloc[i[0]].title,
+                                poster=poster,
+                                rating=0.0
+                            ))
+                        
+                    # Also return the source movie details
+                    source_movie_id = self.movies.iloc[movie_index].movie_id
+                    source_movie = tmdb_service.get_movie_details(int(source_movie_id))
                     
-                    # Fetch full details for the recommended movie
-                    details = tmdb_service.get_movie_details(int(movie_id))
-                    if details:
-                        recommendations.append(details)
-                    else:
-                        # Fallback if details fail
-                        poster = self.fetch_poster(movie_id)
-                        recommendations.append(MovieSchema(
-                            id=int(movie_id),
-                            title=self.movies.iloc[i[0]].title,
-                            poster=poster,
+                    if not source_movie:
+                        # Fallback
+                        poster = self.fetch_poster(source_movie_id)
+                        source_movie = MovieSchema(
+                            id=int(source_movie_id), 
+                            title=local_title, 
+                            poster=poster, 
                             rating=0.0
-                        ))
-                    
-                # Also return the source movie details
-                source_movie_id = self.movies.iloc[movie_index].movie_id
-                source_movie = tmdb_service.get_movie_details(int(source_movie_id))
-                
-                if not source_movie:
-                    # Fallback
-                    poster = self.fetch_poster(source_movie_id)
-                    source_movie = MovieSchema(
-                        id=int(source_movie_id), 
-                        title=local_title, 
-                        poster=poster, 
-                        rating=0.0
-                    )
-            except Exception as e:
-                print(f"Local recommendation error: {e}")
+                        )
+                except Exception as e:
+                    print(f"Local recommendation error: {e}")
         
         # 2. Fallback to TMDB Logic if not found locally or error occurred
         if not recommendations:
-            print(f"Movie '{movie_title}' not found locally or local failed. Searching TMDB...")
-            search_results = tmdb_service.search_movie(movie_title)
+            print(f"Movie '{movie_title}' (ID: {movie_id}) not found locally or local failed. Searching TMDB...")
             
-            if search_results:
-                 # Fetch full details for source movie
-                 source_movie_light = search_results[0]
-                 source_movie = tmdb_service.get_movie_details(source_movie_light.id)
-                 if not source_movie:
-                     source_movie = source_movie_light
+            # If no ID provided, try to search
+            if not movie_id:
+                search_results = tmdb_service.search_movie(movie_title)
+                if search_results:
+                     # Use the top match
+                     source_movie_light = search_results[0]
+                     movie_id = source_movie_light.id
+                     media_type = source_movie_light.media_type
+            
+            if movie_id:
+                 source_movie = tmdb_service.get_movie_details(movie_id, media_type)
                  
-                 recs_light = tmdb_service.get_recommendations(source_movie.id) 
-                 
-                 if not recs_light:
-                     print(f"No recommendations found for '{movie_title}' from TMDB. Trying similar movies...")
-                     recs_light = tmdb_service.get_similar_movies(source_movie.id)
-                 
-                 # Enrich recommendations
-                 for rec in recs_light[:10]:
-                     details = tmdb_service.get_movie_details(rec.id)
-                     if details:
-                         recommendations.append(details)
-                     else:
-                         recommendations.append(rec)
+                 if source_movie:
+                     recs_light = tmdb_service.get_recommendations(source_movie.id, media_type) 
+                     
+                     if not recs_light:
+                         print(f"No recommendations found for '{movie_title}' from TMDB. Trying similar movies...")
+                         recs_light = tmdb_service.get_similar_movies(source_movie.id, media_type)
+                     
+                     # Enrich recommendations
+                     for rec in recs_light[:10]:
+                         details = tmdb_service.get_movie_details(rec.id, rec.media_type) # Recs have media_type?
+                         if details:
+                             recommendations.append(details)
+                         else:
+                             recommendations.append(rec)
         
         # 3. Compute Reasoning
         if source_movie and recommendations:

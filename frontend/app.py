@@ -17,8 +17,16 @@ if 'selected_movie_name' not in st.session_state:
 if 'search_results' not in st.session_state:
     st.session_state.search_results = []
 
-def set_movie(movie_title):
+if 'selected_movie_data' not in st.session_state:
+    st.session_state.selected_movie_data = {'title': None, 'id': None, 'media_type': 'movie'}
+
+def set_movie(movie_title, movie_id=None, media_type="movie"):
     st.session_state.selected_movie_name = movie_title
+    st.session_state.selected_movie_data = {
+        'title': movie_title,
+        'id': movie_id,
+        'media_type': media_type
+    }
 
 # Helper to fetch data
 @st.cache_data(ttl=60)
@@ -43,7 +51,12 @@ def display_movie_row(title, movies):
         movie = movies[i]
         with cols[i+1]:
             st.image(movie['poster'], use_container_width=True)
-            st.button(movie['title'], key=f"btn_{title}_{movie['id']}", on_click=set_movie, args=(movie['title'],))
+            st.button(
+                movie['title'], 
+                key=f"btn_{title}_{movie['id']}", 
+                on_click=set_movie, 
+                args=(movie['title'], movie.get('id'), movie.get('media_type'))
+            )
 
 
 
@@ -74,7 +87,7 @@ if st.session_state.selected_movie_name:
         default_index = None
 
 selected_movie_raw = st.selectbox(
-    "Search for a movie or genre (real-time filtering)",
+    "Search for a movie or genre",
     movie_choices if movie_choices else [],
     index=default_index,
     placeholder="Type to search...",
@@ -86,6 +99,8 @@ if selected_movie_raw:
     # Update session state if changed
     if val != st.session_state.selected_movie_name:
         st.session_state.selected_movie_name = val
+        # Reset ID and Type because we are searching by name
+        st.session_state.selected_movie_data = {'title': val, 'id': None, 'media_type': 'movie'}
         st.rerun()
 
 # Use session state as the source of truth
@@ -110,7 +125,16 @@ if selected_movie:
     else:
         with st.spinner(f"Finding recommendations for '{selected_movie}'..."):
             try:
-                response = requests.post(f"{RECOMMENDER_URL}/recommend", json={"movie_title": selected_movie})
+                # Use extended data if available
+                payload = {"movie_title": selected_movie}
+                current_data = st.session_state.get('selected_movie_data', {})
+                if current_data.get('title') == selected_movie:
+                    if current_data.get('id'):
+                        payload['movie_id'] = current_data.get('id')
+                    if current_data.get('media_type'):
+                        payload['media_type'] = current_data.get('media_type')
+
+                response = requests.post(f"{RECOMMENDER_URL}/recommend", json=payload)
                 response.raise_for_status()
                 data = response.json()
             
@@ -127,32 +151,51 @@ if selected_movie:
                                 st.image(source_movie['poster'], use_container_width=True)
                                 
                         with col3:
-                            st.subheader(source_movie.get('title'))
-                            st.write(f"**Rating:** ⭐ {source_movie.get('rating', 0)}/10")
+                            st.markdown(f"## {source_movie.get('title')}")
                             
-                            # Metadata Row
-                            meta_cols = st.columns([1, 1])
-                            with meta_cols[0]:
-                                if source_movie.get('release_date'):
-                                    st.write(f"📅 **Date:** {source_movie.get('release_date')}")
-                            with meta_cols[1]:
-                                if source_movie.get('runtime'):
-                                    st.write(f"⏱️ **Time:** {source_movie.get('runtime')} min")
-                                    
+                            # 1. Metadata Line (Compact & Together)
+                            stats_parts = []
+                            rating_val = source_movie.get('rating', 0)
+                            stats_parts.append(f"⭐ {rating_val:.1f}/10")
+                            
+                            date = source_movie.get('release_date', 'N/A')
+                            stats_parts.append(f"📅 {date}")
+                            
+                            if source_movie.get('media_type') == 'tv':
+                                s = source_movie.get('number_of_seasons', 0)
+                                e = source_movie.get('number_of_episodes', 0)
+                                stats_parts.append(f"📺 {s} Seasons")
+                                stats_parts.append(f"🎞️ {e} Episodes")
+                            else:
+                                r = source_movie.get('runtime', 0)
+                                stats_parts.append(f"⏱️ {r} min")
+                                
+                            # Display stats in a single caption line with separators
+                            st.caption("   |   ".join(stats_parts))
+                            
+                            # 2. Genres (Bold, simple)
                             if source_movie.get('genres'):
-                                st.write(f"🎭 **Genres:** {', '.join(source_movie.get('genres'))}")
+                                st.markdown(f"**🎭 {', '.join(source_movie.get('genres', []))}**")
+
+                            # 3. Overview (Clean text block)
+                            if source_movie.get('overview'):
+                                st.write(source_movie.get('overview'))
                             
+                            st.markdown("---")
+                            
+                            # 4. Cast & Crew (Compact Stack)
                             if source_movie.get('director'):
-                                st.write(f"🎬 **Director:** {source_movie.get('director')}")
-                                
-                            if source_movie.get('cast'):
-                                st.write(f"👥 **Cast:** {', '.join(source_movie.get('cast'))}")
-                                
-                            st.write(f"📝 **Overview:** {source_movie.get('overview')}")
+                                st.markdown(f"**🎬 Director:** {source_movie.get('director')}")
                             
+                            if source_movie.get('cast'):
+                                cast_list = source_movie.get('cast', [])[:5]
+                                st.markdown(f"**👥 Cast:** {', '.join(cast_list)}")
+                            
+                            # 5. Action Button
                             if source_movie.get('imdb_id'):
+                                st.markdown("<br>", unsafe_allow_html=True)
                                 imdb_url = f"https://www.imdb.com/title/{source_movie.get('imdb_id')}"
-                                st.link_button("Learn more on IMDb ↗", imdb_url)
+                                st.link_button("⭐️ View on IMDb", imdb_url, use_container_width=True)
                     
                     if recommendations:
                         st.markdown("---")
@@ -164,7 +207,12 @@ if selected_movie:
                             movie = recommendations[i]
                             with cols[i+1]:
                                 st.image(movie.get('poster'), use_container_width=True)
-                                st.button(movie.get('title'), key=f"rec_1_{i}", on_click=set_movie, args=(movie.get('title'),))
+                                st.button(
+                                    movie.get('title'), 
+                                    key=f"rec_1_{i}", 
+                                    on_click=set_movie, 
+                                    args=(movie.get('title'), movie.get('id'), movie.get('media_type', 'movie'))
+                                )
                                 if movie.get('reasoning'):
                                     st.markdown(f"<div style='font-size: 0.8em; color: #888;'>{movie.get('reasoning')}</div>", unsafe_allow_html=True)
                         
@@ -176,7 +224,12 @@ if selected_movie:
                                 movie = recommendations[i]
                                 with cols2[i-5+1]:
                                     st.image(movie.get('poster'), use_container_width=True)
-                                    st.button(movie.get('title'), key=f"rec_2_{i}", on_click=set_movie, args=(movie.get('title'),))
+                                    st.button(
+                                        movie.get('title'), 
+                                        key=f"rec_2_{i}", 
+                                        on_click=set_movie, 
+                                        args=(movie.get('title'), movie.get('id'), movie.get('media_type', 'movie'))
+                                    )
                                     if movie.get('reasoning'):
                                         st.markdown(f"<div style='font-size: 0.8em; color: #888;'>{movie.get('reasoning')}</div>", unsafe_allow_html=True)
             except Exception as e:

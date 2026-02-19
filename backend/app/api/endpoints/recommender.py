@@ -15,7 +15,11 @@ def search_movies(q: str = ""):
 
 @router.post("/recommend", response_model=RecommendationResponse)
 def get_recommendations(request: RecommendationRequest):
-    recommendations, source_movie = recommender_service.recommend(request.movie_title)
+    recommendations, source_movie = recommender_service.recommend(
+        request.movie_title, 
+        request.movie_id, 
+        request.media_type
+    )
     return RecommendationResponse(
         recommendations=recommendations, 
         source_movie=source_movie

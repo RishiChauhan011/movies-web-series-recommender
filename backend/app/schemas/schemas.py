@@ -3,6 +3,8 @@ from typing import List, Optional
 
 class RecommendationRequest(BaseModel):
     movie_title: str
+    movie_id: Optional[int] = None
+    media_type: Optional[str] = "movie"
 
 
 class MovieSchema(BaseModel):
@@ -21,6 +23,9 @@ class MovieSchema(BaseModel):
     keywords: Optional[List[str]] = []
     reasoning: Optional[str] = None
     imdb_id: Optional[str] = None
+    media_type: Optional[str] = "movie"
+    number_of_seasons: Optional[int] = None
+    number_of_episodes: Optional[int] = None
 
 class RecommendationResponse(BaseModel):
     recommendations: List[MovieSchema]
